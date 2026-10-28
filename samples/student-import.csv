@@ -1,0 +1,5 @@
+student_code,full_name,dob,email,guardian_name,guardian_email,phone,class_name
+NEW1001,Aditi Demo,2007-04-15,aditi@example.invalid,Demo Guardian,guardian@example.invalid,9000000099,Year 1 · A
+NEW1002,Rohan Demo,2007-06-12,rohan@example.invalid,Demo Guardian,guardian2@example.invalid,9000000098,Year 1 · A
+ST1001,Ananya Rao,2000-01-15,ananya@example.invalid,Demo Guardian,guardian3@example.invalid,9000000097,Year 1 · A
+ALT1001,Ananya Rao,2000-01-15,ananya@example.invalid,Demo Guardian,guardian3@example.invalid,9000000097,Year 1 · A

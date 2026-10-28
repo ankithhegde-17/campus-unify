@@ -1,0 +1,13 @@
+{
+  "synthetic_only": true,
+  "campus": "CAMPUS-A",
+  "starting_student_count": 72,
+  "rows": [
+    {"source_student_code":"NEW1001","expected":"new_pending_admission"},
+    {"source_student_code":"NEW1002","expected":"new_pending_admission"},
+    {"source_student_code":"ST1001","expected":"exact_link","target_student_code":"ST1001"},
+    {"source_student_code":"ALT1001","expected":"manual_review","target_student_code":"ST1001"}
+  ],
+  "expected_student_count_after_two_new_and_two_links":74,
+  "note":"This is our generated fixture, not organizer ground truth. Reimporting the exact batch must be blocked."
+}

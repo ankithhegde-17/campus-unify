@@ -1,0 +1,12 @@
+{
+  "name": "campus-unify",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev": "node scripts/dev.mjs",
+    "test": "npm --prefix server test",
+    "build": "npm --prefix client run build"
+  }
+}
