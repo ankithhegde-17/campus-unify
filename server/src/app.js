@@ -21,7 +21,7 @@ export function createApp(store) {
     res.json({
       status: "ok",
       mode: store.mode,
-      message: "Campus Unify backend is running",
+      message: "Maharaja Education Trust backend is running",
     }),
   );
   app.get("/api/config", (_req, res) =>

@@ -149,7 +149,7 @@ function Login({ config, onSignedIn }) {
             <Building2 size={24} />
           </span>
           <strong>
-            campus<span>unify</span>
+            <span>MET</span>
           </strong>
         </div>
         <div className="login-copy">
@@ -189,7 +189,7 @@ function Login({ config, onSignedIn }) {
               : "SECURE INSTITUTIONAL ACCESS"}
           </span>
           <h2>Welcome back.</h2>
-          <p>Sign in to your Campus Unify workspace.</p>
+          <p>Sign in to your Maharaja Education Trust workspace.</p>
           <form onSubmit={submit}>
             {config.mode === "demo" && (
               <label>
@@ -255,7 +255,7 @@ function Login({ config, onSignedIn }) {
     </div>
   );
 }
-function scoped(data, campus) {
+function scoped(data, campus, department = "", year = "") {
   if (!campus) return data;
   const result = { ...data };
   for (const key of [
@@ -284,12 +284,43 @@ function scoped(data, campus) {
   result.audit = data.audit.filter(
     (a) => !a.campus_id || a.campus_id === campus,
   );
+  if (!department && !year) return result;
+  const visibleStudents = result.students.filter(
+    (student) =>
+      (!department || student.department_id === department) &&
+      (!year || student.class_name.startsWith(`Year ${year} `)),
+  );
+  const studentIds = new Set(visibleStudents.map((student) => student.id));
+  result.students = visibleStudents;
+  result.departments = result.departments.filter(
+    (item) => !department || item.id === department,
+  );
+  result.staff = result.staff.filter(
+    (item) => !department || item.department_id === department,
+  );
+  result.sessions = result.sessions.filter(
+    (item) =>
+      (!department || item.department_id === department) &&
+      (!year || item.class_name.startsWith(`Year ${year} `)),
+  );
+  for (const key of [
+    "charges",
+    "payments",
+    "attendance",
+    "allocations",
+    "scholarships",
+    "requests",
+    "documents",
+  ])
+    result[key] = result[key].filter((item) => studentIds.has(item.student_id));
   return result;
 }
 function Workspace({ config, onSignedOut }) {
   const [data, setData] = useState(null),
     [page, setPage] = useState("overview"),
     [campus, setCampus] = useState(""),
+    [department, setDepartment] = useState(""),
+    [year, setYear] = useState(""),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [modal, setModal] = useState(null),
@@ -384,7 +415,10 @@ function Workspace({ config, onSignedOut }) {
         )}
       </div>
     );
-  const d = scoped(data, campus),
+  const availableDepartments = data.departments.filter(
+      (item) => !campus || item.campus_id === campus,
+    ),
+    d = scoped(data, campus, department, year),
     Page = pages[page] || pages.overview,
     role = data.assignments[0]?.role_code || "unassigned",
     pending = data.requests.filter((r) => r.status === "pending").length;
@@ -418,8 +452,8 @@ function Workspace({ config, onSignedOut }) {
             Approved reversals create linked negative entries.
           </p>
           <p>
-            <strong>Sample data:</strong> 72 fictional students and 18 staff.
-            Not a measured 14,000-student deployment.
+            <strong>Sample data:</strong> 14,000 fictional students and 18 staff.
+            Each student has an annual tuition charge of ₹2,00,000.
           </p>
         </div>
       ),
@@ -447,13 +481,13 @@ function Workspace({ config, onSignedOut }) {
             <Building2 size={22} />
           </span>
           <strong>
-            campus<span>unify</span>
+            <span>MET</span>
           </strong>
         </a>
         <div className="workspace-label">
           <span className="workspace-dot" />
           <div>
-            <strong>Educational Trust</strong>
+            <strong>Maharaja Education Trust</strong>
             <small>Institution workspace</small>
           </div>
           <ChevronDown size={14} />
@@ -596,6 +630,8 @@ function Workspace({ config, onSignedOut }) {
                 value={campus}
                 onChange={(e) => {
                   setCampus(e.target.value);
+                  setDepartment("");
+                  setYear("");
                   setQuery("");
                 }}
               >
@@ -603,6 +639,39 @@ function Workspace({ config, onSignedOut }) {
                 {data.campuses.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter by department"
+                value={department}
+                disabled={!campus}
+                onChange={(e) => {
+                  setDepartment(e.target.value);
+                  setYear("");
+                  setQuery("");
+                }}
+              >
+                <option value="">All departments</option>
+                {availableDepartments.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter by year"
+                value={year}
+                disabled={!department}
+                onChange={(e) => {
+                  setYear(e.target.value);
+                  setQuery("");
+                }}
+              >
+                <option value="">All years</option>
+                {[1, 2, 3, 4].map((value) => (
+                  <option key={value} value={value}>
+                    Year {value}
                   </option>
                 ))}
               </select>
@@ -644,7 +713,7 @@ function Workspace({ config, onSignedOut }) {
             setPage={setPage}
           />
           <footer className="content-footer">
-            <span>Campus Unify · One trust, every campus</span>
+            <span>Maharaja Education Trust · One trust, every campus</span>
             <span>
               {data.meta.synthetic
                 ? "Fictional demo dataset"
@@ -712,7 +781,7 @@ export default function App() {
     return (
       <div className="boot">
         <LoaderCircle className="spin" size={32} />
-        <p>Connecting to Campus Unify...</p>
+        <p>Connecting to Maharaja Education Trust...</p>
       </div>
     );
   return signed ? (

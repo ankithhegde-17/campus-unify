@@ -159,7 +159,7 @@ export function Modal({ spec, onClose }) {
     >
       <div className="modal-head">
         <div>
-          <p className="eyebrow">Campus Unify</p>
+          <p className="eyebrow">Maharaja Education Trust</p>
           <h2 id="dialog-title">{spec.title}</h2>
         </div>
         <button

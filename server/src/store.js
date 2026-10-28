@@ -83,6 +83,10 @@ export async function createStore(options = {}) {
       if (error) throw error;
       state = data.payload;
       revision = data.revision;
+    } else {
+      // The seed utility can be run while the demo API is active. Re-read the
+      // persisted workspace so the next request reflects that update.
+      state = JSON.parse(await readFile(file, "utf8"));
     }
     return state;
   }

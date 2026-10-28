@@ -15,12 +15,20 @@ export const ROLES = [
 ];
 export function makeSeed(existingCampuses = [], existingDepartments = []) {
   const today = "2026-10-28";
+  const campusNames = [
+    "Maharaja Institute of Technology, Thandavapura",
+    "Maharaja Institute of Technology, Mysuru",
+    "Maharaja First Grade College, JP Nagar",
+    "Maharaja Medical College",
+    "Maharaja Institute of Technology, Bengaluru",
+    "Maharaja First Grade College, Mysore",
+  ];
   const campuses = "ABCDEF".split("").map((letter, i) => {
     const old = existingCampuses.find((c) => c.code === `CAMPUS-${letter}`);
     return {
       id: old?.id || randomUUID(),
       code: `CAMPUS-${letter}`,
-      name: old?.name || `Campus ${letter}`,
+      name: old?.name || campusNames[i],
       institution_type:
         old?.institution_type ||
         [
@@ -135,7 +143,7 @@ export function makeSeed(existingCampuses = [], existingDepartments = []) {
     campus_id: c.id,
     version: 1,
     effective_from: "2026-07-01",
-    tuition: 80000 - i * 8000,
+    tuition: 200000,
     hostel: 24000,
     attendance_threshold: i < 4 ? 75 : 80,
     concession_percent: 10,
