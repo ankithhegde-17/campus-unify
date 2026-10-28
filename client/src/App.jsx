@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Activity,
   LayoutDashboard,
@@ -24,6 +24,10 @@ import {
   CheckCircle2,
   RefreshCw,
   FileCheck2,
+  Eye,
+  EyeOff,
+  CircleAlert,
+  FilterX,
 } from "lucide-react";
 import { configure, authClient, api } from "./lib/client";
 import { Modal } from "./ui";
@@ -115,6 +119,7 @@ function Login({ config, onSignedIn }) {
       config.mode === "demo" ? "Demo@12345" : "",
     ),
     [busy, setBusy] = useState(false),
+    [reveal, setReveal] = useState(false),
     [error, setError] = useState("");
   async function submit(e) {
     e.preventDefault();
@@ -145,15 +150,14 @@ function Login({ config, onSignedIn }) {
     <div className="login-page">
       <section className="login-story">
         <div className="brand">
-          <span className="brand-logo">
-            <Building2 size={24} />
-          </span>
-          <strong>
-            <span>MET</span>
-          </strong>
+          <img
+            className="brand-logo"
+            src="/met-logo.png"
+            alt="MET — Revolution in Education"
+          />
         </div>
         <div className="login-copy">
-          <p className="eyebrow">ONE TRUST. EVERY CAMPUS.</p>
+          <p className="eyebrow">One trust. Every campus.</p>
           <h1>
             Less scattered.
             <br />
@@ -185,8 +189,8 @@ function Login({ config, onSignedIn }) {
         <div className="login-form">
           <span className="pill">
             {config.mode === "demo"
-              ? "SYNTHETIC DEMONSTRATION"
-              : "SECURE INSTITUTIONAL ACCESS"}
+              ? "Synthetic demonstration"
+              : "Secure institutional access"}
           </span>
           <h2>Welcome back.</h2>
           <p>Sign in to your Maharaja Education Trust workspace.</p>
@@ -219,14 +223,25 @@ function Login({ config, onSignedIn }) {
             </label>
             <label>
               Password
-              <input
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={busy}
-              />
+              <span className="password-field">
+                <input
+                  type={reveal ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={busy}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={reveal ? "Hide password" : "Show password"}
+                  aria-pressed={reveal}
+                  onClick={() => setReveal(!reveal)}
+                >
+                  {reveal ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </span>
             </label>
             {error && (
               <p className="alert error" role="alert">
@@ -241,7 +256,9 @@ function Login({ config, onSignedIn }) {
           </form>
           {config.mode === "demo" ? (
             <p className="login-note">
-              Demo password: <code>Demo@12345</code>
+              Trust login: <code>trust_management@demo.local</code>
+              <br />
+              Password (all accounts): <code>Demo@12345</code>
               <br />
               Fictional data only. Each account has server-enforced permissions.
             </p>
@@ -315,9 +332,13 @@ function scoped(data, campus, department = "", year = "") {
     result[key] = result[key].filter((item) => studentIds.has(item.student_id));
   return result;
 }
+const pageFromHash = () => {
+  const key = window.location.hash.slice(1);
+  return pages[key] ? key : "overview";
+};
 function Workspace({ config, onSignedOut }) {
   const [data, setData] = useState(null),
-    [page, setPage] = useState("overview"),
+    [page, setPageState] = useState(pageFromHash),
     [campus, setCampus] = useState(""),
     [department, setDepartment] = useState(""),
     [year, setYear] = useState(""),
@@ -327,6 +348,48 @@ function Workspace({ config, onSignedOut }) {
     [mobile, setMobile] = useState(false),
     [query, setQuery] = useState(""),
     [refreshing, setRefreshing] = useState(false);
+  const searchRef = useRef(null);
+  // The hash keeps the open module across refreshes and browser back/forward.
+  function setPage(key) {
+    if (key !== page) window.location.hash = key;
+    setPageState(key);
+    window.scrollTo({ top: 0 });
+  }
+  useEffect(() => {
+    const sync = () => setPageState(pageFromHash());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  useEffect(() => {
+    document.title = `${nav[page]?.[0] || "Workspace"} · MET`;
+  }, [page]);
+  useEffect(() => {
+    function onKey(e) {
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+      if (
+        (e.key === "k" && (e.ctrlKey || e.metaKey)) ||
+        (e.key === "/" && !typing)
+      ) {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (e.key === "Escape") {
+        setMobile(false);
+        if (e.target === searchRef.current) {
+          setQuery("");
+          searchRef.current.blur();
+        }
+      }
+    }
+    function onPointer(e) {
+      if (!searchRef.current?.parentElement.contains(e.target)) setQuery("");
+    }
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointer);
+    };
+  }, []);
   async function load() {
     const result = await api("/workspace");
     setData(result);
@@ -477,12 +540,11 @@ function Workspace({ config, onSignedOut }) {
             setPage("overview");
           }}
         >
-          <span className="brand-logo">
-            <Building2 size={22} />
-          </span>
-          <strong>
-            <span>MET</span>
-          </strong>
+          <img
+            className="brand-logo"
+            src="/met-logo.png"
+            alt="MET — Revolution in Education, go to Overview"
+          />
         </a>
         <div className="workspace-label">
           <span className="workspace-dot" />
@@ -540,11 +602,13 @@ function Workspace({ config, onSignedOut }) {
           <div className="global-search">
             <Search size={17} />
             <input
+              ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               aria-label="Find a student or staff member"
               placeholder="Find a student or staff member..."
             />
+            {!query && <kbd className="kbd">Ctrl K</kbd>}
             {query && (
               <div className="search-results">
                 {results.length ? (
@@ -675,6 +739,19 @@ function Workspace({ config, onSignedOut }) {
                   </option>
                 ))}
               </select>
+              {campus && (
+                <button
+                  className="filter-clear"
+                  onClick={() => {
+                    setCampus("");
+                    setDepartment("");
+                    setYear("");
+                  }}
+                >
+                  <FilterX size={16} />
+                  Clear filters
+                </button>
+              )}
               <button
                 className="icon-button refresh"
                 aria-label="Refresh data"
@@ -700,7 +777,15 @@ function Workspace({ config, onSignedOut }) {
           )}
           {error && (
             <div className="alert error" role="alert">
-              {error}
+              <CircleAlert size={18} />
+              <span>{error}</span>
+              <button
+                className="icon-button"
+                aria-label="Dismiss error"
+                onClick={() => setError("")}
+              >
+                <X size={15} />
+              </button>
             </div>
           )}
           <Page
@@ -710,6 +795,8 @@ function Workspace({ config, onSignedOut }) {
             open={setModal}
             run={run}
             reload={refresh}
+            notify={setNotice}
+            showError={setError}
             setPage={setPage}
           />
           <footer className="content-footer">

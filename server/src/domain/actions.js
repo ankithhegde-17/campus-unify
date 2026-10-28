@@ -86,6 +86,71 @@ function allocatePayment(state, studentId, campusId, amount) {
     fail("Amount exceeds outstanding charges for this campus.");
   return allocations;
 }
+// Shared by counter payments and verified online payments: one receipt format.
+function issuePayment(state, actor, { studentId, campusId, amount, reference, method }) {
+  if (state.payments.some((p) => p.reference === reference))
+    fail("This payment reference is already recorded.", 409);
+  if (amount > balance(state, studentId))
+    fail("Amount exceeds the current outstanding balance.");
+  const p = {
+    id: id(),
+    student_id: studentId,
+    campus_id: campusId,
+    amount,
+    allocations: allocatePayment(state, studentId, campusId, amount),
+    reference,
+    receipt_no: `CU-${new Date().getFullYear()}-${String(state.payments.length + 1).padStart(6, "0")}`,
+    method,
+    paid_at: today(),
+    created_by: actor.userId,
+    kind: "payment",
+  };
+  state.payments.push(p);
+  return p;
+}
+const FINANCE_STAFF = ["trust_management", "campus_admin", "accounts_officer"];
+// Validates who may pay online, for whom and how much. Finance staff may take
+// a payment for any student in their campuses; students and verified parents
+// only for their own linked record (enforced by studentAllowed).
+export function onlinePaymentQuote(state, actor, b) {
+  const s = student(state, actor, b.student_id),
+    campusId = b.campus_id || s.campus_id;
+  const staff = hasRole(actor, ...FINANCE_STAFF) && campusAccess(actor, campusId),
+    self = hasRole(actor, "student", "parent");
+  if (!staff && !self) fail("You do not have permission for this action.", 403);
+  if (!state.charges.some((c) => c.student_id === s.id && c.campus_id === campusId))
+    fail("There are no fee charges for this student at that campus.");
+  const amount = money(b.amount);
+  if (amount > balance(state, s.id))
+    fail("Amount exceeds the current outstanding balance.");
+  allocatePayment(state, s.id, campusId, amount);
+  return { student: s, campusId, amount };
+}
+// Called only after the server has verified the payment with Razorpay; never
+// reachable through the generic /api/actions endpoint.
+export function recordOnlinePayment(state, actor, b) {
+  const existing = state.payments.find((p) => p.reference === b.reference);
+  if (existing) return { message: `Payment already recorded. Receipt ${existing.receipt_no}`, receipt: existing };
+  const { student: s, campusId, amount } = onlinePaymentQuote(state, actor, b);
+  const p = issuePayment(state, actor, {
+    studentId: s.id,
+    campusId,
+    amount,
+    reference: b.reference,
+    method: "Razorpay",
+  });
+  state.audit.push({
+    id: id(),
+    at: new Date().toISOString(),
+    actor: actor.profile.full_name,
+    actor_id: actor.userId,
+    action: "payment.online",
+    campus_id: campusId,
+    entity: s.id,
+    details: `Razorpay ${b.reference} · order ${b.order_id}`,
+  });
+  return { message: `Payment received. Receipt ${p.receipt_no}`, receipt: p };
+}
 export function balance(state, studentId) {
   const due = state.charges
     .filter((c) => c.student_id === studentId)
@@ -435,29 +500,15 @@ export function act(state, actor, action, b = {}) {
         )
       )
         fail("Student is outside your permitted financial records.", 403);
-      const amount = money(b.amount),
-        reference = text(b.reference, "Unique payment reference", 100);
-      if (state.payments.some((p) => p.reference === reference))
-        fail("This payment reference is already recorded.", 409);
-      if (amount > balance(state, s.id))
-        fail("Amount exceeds the current outstanding balance.");
-      const allocations = allocatePayment(state, s.id, campusId, amount);
-      const p = {
-        id: id(),
-        student_id: s.id,
-        campus_id: campusId,
-        amount,
-        allocations,
-        reference,
-        receipt_no: `CU-${new Date().getFullYear()}-${String(state.payments.length + 1).padStart(6, "0")}`,
+      const p = issuePayment(state, actor, {
+        studentId: s.id,
+        campusId,
+        amount: money(b.amount),
+        reference: text(b.reference, "Unique payment reference", 100),
         method: ["Cash", "Bank transfer", "UPI"].includes(b.method)
           ? b.method
           : "Bank transfer",
-        paid_at: today(),
-        created_by: actor.userId,
-        kind: "payment",
-      };
-      state.payments.push(p);
+      });
       result = {
         message: `Payment recorded. Receipt ${p.receipt_no}`,
         receipt: p,

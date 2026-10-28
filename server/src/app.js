@@ -1,5 +1,6 @@
 import express from "express";
 import { documentRoutes } from "./documents.js";
+import { razorpayRoutes } from "./razorpay.js";
 import { randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { capabilities, safeView, fail } from "./domain/access.js";
@@ -147,6 +148,7 @@ export function createApp(store) {
     res.json({ message: "Signed out." });
   });
   app.use("/api/documents", documentRoutes(store));
+  app.use("/api/razorpay", razorpayRoutes(store));
   app.get("/api/me", (req, res) =>
     res.json({ ...req.actor, modules: capabilities(req.actor) }),
   );

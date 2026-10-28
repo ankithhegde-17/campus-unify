@@ -2,7 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { makeSeed } from "../src/domain/seed.js";
 import { safeView } from "../src/domain/access.js";
-import { act, balance, previewImport } from "../src/domain/actions.js";
+import {
+  act,
+  balance,
+  previewImport,
+  onlinePaymentQuote,
+  recordOnlinePayment,
+} from "../src/domain/actions.js";
 function actor(s, role) {
   const u = s.users.find((u) => u.role === role);
   return {
@@ -407,4 +413,37 @@ test("campus financial reports reconcile with trust aggregate", () => {
     trust.report_rows.reduce((n, r) => n + r.outstanding, 0),
     s.students.reduce((n, st) => n + balance(s, st.id), 0),
   );
+});
+test("online payment: students pay only their own fees; staff by campus", () => {
+  const s = fresh(),
+    me = actor(s, "student"),
+    own = s.users.find((u) => u.role === "student").student_id,
+    other = s.students.find((x) => x.id !== own && balance(s, x.id) > 0);
+  assert.equal(onlinePaymentQuote(s, me, { student_id: own, amount: 100 }).amount, 100);
+  assert.throws(
+    () => onlinePaymentQuote(s, me, { student_id: other.id, amount: 100 }),
+    /permitted records/,
+  );
+  assert.throws(
+    () => onlinePaymentQuote(s, actor(s, "faculty"), { student_id: own, amount: 100 }),
+    /permission|permitted/,
+  );
+  assert.throws(
+    () => onlinePaymentQuote(s, me, { student_id: own, amount: balance(s, own) + 1 }),
+    /exceeds/,
+  );
+});
+test("verified online payment issues one receipt per Razorpay payment id", () => {
+  const s = fresh(),
+    me = actor(s, "student"),
+    own = s.users.find((u) => u.role === "student").student_id,
+    before = balance(s, own),
+    body = { student_id: own, amount: 250, reference: "pay_TEST123", order_id: "order_TEST" };
+  const first = recordOnlinePayment(s, me, body);
+  assert.equal(first.receipt.method, "Razorpay");
+  assert.equal(balance(s, own), before - 250);
+  const again = recordOnlinePayment(s, me, body);
+  assert.equal(again.receipt.id, first.receipt.id);
+  assert.equal(s.payments.filter((p) => p.reference === "pay_TEST123").length, 1);
+  assert.ok(s.audit.some((a) => a.action === "payment.online"));
 });

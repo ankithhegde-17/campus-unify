@@ -6,6 +6,9 @@ import {
   ChevronRight,
   Inbox,
   LoaderCircle,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 import { label } from './lib/format';
 export function Badge({ children, tone = "" }) {
@@ -18,14 +21,23 @@ export function Badge({ children, tone = "" }) {
         : "");
   return <span className={`badge ${color}`}>{label(children)}</span>;
 }
-export function Empty({ title = "No records yet", children }) {
+export function Empty({ title = "No records yet", children, action }) {
   return (
     <div className="empty">
-      <Inbox size={30} />
-      <h3>{title}</h3>
+      <Inbox size={26} />
+      <p className="empty-title">{title}</p>
       <p>{children || "Records will appear here when they are available."}</p>
+      {action}
     </div>
   );
+}
+const sortable = (v) => ["string", "number", "boolean"].includes(typeof v);
+function compare(a, b) {
+  if (a == null) return b == null ? 0 : 1;
+  if (b == null) return -1;
+  return typeof a === "number" && typeof b === "number"
+    ? a - b
+    : String(a).localeCompare(String(b), undefined, { numeric: true });
 }
 export function Table({
   columns,
@@ -35,10 +47,16 @@ export function Table({
   actions,
 }) {
   const [query, setQuery] = useState(""),
-    [page, setPage] = useState(0);
-  const filtered = rows.filter((r) =>
+    [page, setPage] = useState(0),
+    [sort, setSort] = useState(null);
+  const matches = rows.filter((r) =>
       JSON.stringify(r).toLowerCase().includes(query.toLowerCase()),
     ),
+    filtered = sort
+      ? [...matches].sort(
+          (a, b) => compare(a[sort.key], b[sort.key]) * sort.dir,
+        )
+      : matches,
     pages = Math.max(1, Math.ceil(filtered.length / 8)),
     current = Math.min(page, pages - 1),
     visible = filtered.slice(current * 8, current * 8 + 8);
@@ -58,6 +76,15 @@ export function Table({
                   setPage(0);
                 }}
               />
+              {query && (
+                <button
+                  className="icon-button"
+                  aria-label="Clear search"
+                  onClick={() => setQuery("")}
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
           )}
           <div className="toolbar-actions">{actions}</div>
@@ -69,9 +96,47 @@ export function Table({
             <table>
               <thead>
                 <tr>
-                  {columns.map((c) => (
-                    <th key={c.key}>{c.title}</th>
-                  ))}
+                  {columns.map((c) => {
+                    if (!rows.some((r) => sortable(r[c.key])))
+                      return <th key={c.key}>{c.title}</th>;
+                    const active = sort?.key === c.key,
+                      Icon = !active
+                        ? ArrowUpDown
+                        : sort.dir > 0
+                          ? ArrowUp
+                          : ArrowDown;
+                    return (
+                      <th
+                        key={c.key}
+                        aria-sort={
+                          active
+                            ? sort.dir > 0
+                              ? "ascending"
+                              : "descending"
+                            : undefined
+                        }
+                      >
+                        <button
+                          type="button"
+                          className="sort"
+                          onClick={() => {
+                            // Cycle: ascending → descending → original order.
+                            setSort(
+                              !active
+                                ? { key: c.key, dir: 1 }
+                                : sort.dir > 0
+                                  ? { key: c.key, dir: -1 }
+                                  : null,
+                            );
+                            setPage(0);
+                          }}
+                        >
+                          {c.title}
+                          <Icon size={12} />
+                        </button>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -116,7 +181,19 @@ export function Table({
           </div>
         </>
       ) : (
-        <Empty title={empty} />
+        <Empty
+          title={empty}
+          action={
+            query && (
+              <button className="small-button" onClick={() => setQuery("")}>
+                <X size={13} />
+                Clear search
+              </button>
+            )
+          }
+        >
+          {query ? `Nothing matches “${query}”.` : undefined}
+        </Empty>
       )}
     </div>
   );
@@ -154,6 +231,18 @@ export function Modal({ spec, onClose }) {
       onCancel={(e) => {
         if (busy) e.preventDefault();
         else onClose();
+      }}
+      onClick={(e) => {
+        // Close only for clicks on the backdrop, not the dialog's own padding.
+        if (e.target !== ref.current || busy) return;
+        const box = ref.current.getBoundingClientRect();
+        if (
+          e.clientX < box.left ||
+          e.clientX > box.right ||
+          e.clientY < box.top ||
+          e.clientY > box.bottom
+        )
+          onClose();
       }}
       aria-labelledby="dialog-title"
     >
@@ -246,7 +335,7 @@ export function Modal({ spec, onClose }) {
             disabled={busy}
             onClick={onClose}
           >
-            Close
+            {spec.submit ? "Cancel" : "Close"}
           </button>
           {spec.submit && (
             <button className="button" disabled={busy}>
@@ -264,7 +353,7 @@ export function Panel({ title, subtitle, children, action }) {
     <section className="panel">
       <div className="panel-head">
         <div>
-          <h3>{title}</h3>
+          <h2>{title}</h2>
           {subtitle && <p>{subtitle}</p>}
         </div>
         {action}

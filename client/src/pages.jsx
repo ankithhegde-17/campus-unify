@@ -19,10 +19,12 @@ import {
   ArrowRightLeft,
   UserMinus,
   Send,
+  CreditCard,
 } from "lucide-react";
 import { Table, Badge, Empty, Panel } from "./ui";
 import { money, label } from "./lib/format";
 import { api, csv, download, parseCSV } from "./lib/client";
+import { createRazorpayOrder, openRazorpay } from "./lib/razorpay";
 
 function studentBalance(d, id) {
   return (
@@ -76,6 +78,7 @@ const opts = (rows, key = "full_name") =>
   rows.map((r) => ({ value: r.id, label: r[key] }));
 const field = (key, label, type = "text", extra = {}) => ({
   key,
+  label,
   type,
   ...extra,
 });
@@ -196,7 +199,7 @@ export function Overview(ctx) {
     <>
       <div className="welcome">
         <div>
-          <span className="eyebrow">YOUR INSTITUTIONS, CONNECTED</span>
+          <span className="eyebrow">Your institutions, connected</span>
           <h2>A clear view of what matters.</h2>
           <p>Students, people and operations. One trusted workspace.</p>
         </div>
@@ -422,9 +425,9 @@ export function Overview(ctx) {
             .map((n) => (
               <article className="notice-preview" key={n.id}>
                 <span className="eyebrow">
-                  {n.campus_id ? campusName(d, n.campus_id) : "TRUST NOTICE"}
+                  {n.campus_id ? campusName(d, n.campus_id) : "Trust notice"}
                 </span>
-                <h4>{n.title}</h4>
+                <h3>{n.title}</h3>
                 <p>{n.body}</p>
                 <small>
                   {new Date(n.created_at).toLocaleDateString("en-IN")}
@@ -787,21 +790,54 @@ export function Finance(ctx) {
       "trust_management",
       "campus_admin",
       "accounts_officer",
-    ]);
+    ]),
+    online = manage || permitted(ctx, ["student", "parent"]);
+  const chargeCampuses = (s) =>
+    opts(
+      d.campuses.filter((c) =>
+        d.charges.some((ch) => ch.student_id === s.id && ch.campus_id === c.id),
+      ),
+      "name",
+    );
+  function payOnline(s) {
+    const outstanding = studentBalance(d, s.id);
+    open({
+      title: `Pay online · ${s.full_name}`,
+      description: `Outstanding: ${money(outstanding)}. Pay the full amount or part of it by card, UPI or netbanking through Razorpay.`,
+      fields: [
+        field("campus_id", "Campus owning the charge", "select", {
+          options: chargeCampuses(s),
+        }),
+        field("amount", "Amount to pay (₹)", "number", {
+          min: 1,
+          max: outstanding,
+        }),
+      ],
+      initial: { campus_id: s.campus_id, amount: String(outstanding) },
+      submit: async (v) => {
+        const order = await createRazorpayOrder({ ...v, student_id: s.id });
+        // Open once this dialog has closed: a modal <dialog> sits in the top
+        // layer and would block clicks on the Razorpay popup.
+        setTimeout(() =>
+          openRazorpay(order)
+            .then(async (result) => {
+              await ctx.reload();
+              ctx.notify(result.message);
+              receipt(result.receipt);
+            })
+            .catch((e) => (e.cancelled ? ctx.notify(e.message) : ctx.showError(e.message))),
+        );
+      },
+      button: "Continue to payment",
+    });
+  }
   function pay(s) {
     open({
       title: `Record payment · ${s.full_name}`,
       description: `Current outstanding: ${money(studentBalance(d, s.id))}. A receipt cannot be edited after issue.`,
       fields: [
         field("campus_id", "Campus owning the charge", "select", {
-          options: opts(
-            d.campuses.filter((c) =>
-              d.charges.some(
-                (ch) => ch.student_id === s.id && ch.campus_id === c.id,
-              ),
-            ),
-            "name",
-          ),
+          options: chargeCampuses(s),
         }),
         field("amount", "Amount received", "number", { min: 1 }),
         field("reference", "Unique payment / collection reference"),
@@ -956,17 +992,29 @@ export function Finance(ctx) {
               key: "actions",
               title: "Actions",
               render: (r) =>
-                manage ? (
+                online ? (
                   <div className="row-actions">
                     <button
                       className="small-button"
                       disabled={r.balance <= 0}
-                      onClick={() => pay(r)}
+                      onClick={() => payOnline(r)}
                     >
-                      Record payment
+                      <CreditCard size={14} />
+                      Pay online
                     </button>
-                    {actionButton("Request concession", FileText, () =>
-                      concession(r),
+                    {manage && (
+                      <>
+                        <button
+                          className="small-button"
+                          disabled={r.balance <= 0}
+                          onClick={() => pay(r)}
+                        >
+                          Record payment
+                        </button>
+                        {actionButton("Request concession", FileText, () =>
+                          concession(r),
+                        )}
+                      </>
                     )}
                   </div>
                 ) : (
@@ -1847,7 +1895,7 @@ export function Notices(ctx) {
             <Badge>
               {n.campus_id ? campusName(d, n.campus_id) : "Trust wide"}
             </Badge>
-            <h3>{n.title}</h3>
+            <h2>{n.title}</h2>
             <p>{n.body}</p>
             <footer>
               <span>{new Date(n.created_at).toLocaleDateString("en-IN")}</span>

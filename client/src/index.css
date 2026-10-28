@@ -1,13 +1,19 @@
 * {
   box-sizing: border-box;
 }
+html {
+  -webkit-text-size-adjust: 100%;
+}
 body {
   margin: 0;
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
-  color: #20332f;
-  background: #f6f8f8;
+  font-family: Inter, "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  color: #2a1e1b;
+  background: #f8f3eb;
   font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 button,
 input,
@@ -31,14 +37,8 @@ button:disabled {
 }
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid #6ebcab;
-  outline-offset: 3px;
-}
-input:focus,
-select:focus,
-textarea:focus {
-  outline: 2px solid #70b5a5;
-  outline-offset: 1px;
+  outline: 2px solid #722f37;
+  outline-offset: 2px;
 }
 a {
   color: inherit;
@@ -55,13 +55,14 @@ button svg {
 }
 small {
   display: block;
-  color: #7b8b87;
-  font-size: 11px;
+  color: #6e5d55;
+  font-size: 12px;
 }
 code,
 .mono {
-  font-family: Consolas, monospace;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 0.92em;
 }
 ::selection {
-  background: #d0ece3;
+  background: #e8dcc6;
 }
