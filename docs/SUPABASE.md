@@ -14,7 +14,7 @@ Create server/.env locally (copy server/.env.example):
 
 ```dotenv
 APP_MODE=supabase
-PORT=5000
+PORT=5050
 SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 SUPABASE_PUBLISHABLE_KEY=YOUR_PUBLISHABLE_KEY
 SUPABASE_SECRET_KEY=YOUR_BACKEND_ONLY_SECRET_KEY

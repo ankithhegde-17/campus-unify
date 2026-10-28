@@ -21,11 +21,11 @@ The command prompt must point to the folder with ROOT package.json, client, serv
 
 ## Port errors
 
-If 5000 or 5173 is in use, stop your old terminals. Vite deliberately does not silently move to another port. Do not start several copies of npm run dev.
+If 5050 or 5173 is in use, stop your old terminals. Vite deliberately does not silently move to another port. Do not start several copies of npm run dev.
 
 ## Unexpected JSON or API errors
 
-- GET http://localhost:5000/api/health should return JSON with mode demo.
+- GET http://localhost:5050/api/health should return JSON with mode demo.
 - /api/workspace without a token should return 401 JSON.
 - Confirm both services started in the terminal and the browser uses port 5173.
 - A restarted demo server invalidates its in-memory login sessions. Sign out and sign back in.
