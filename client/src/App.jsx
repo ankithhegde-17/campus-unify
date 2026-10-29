@@ -155,6 +155,7 @@ function Login({ config, onSignedIn }) {
             src="/met-logo.png"
             alt="MET — Revolution in Education"
           />
+          <span className="brand-name">Maharaja Education Trust</span>
         </div>
         <div className="login-copy">
           <p className="eyebrow">One trust. Every campus.</p>

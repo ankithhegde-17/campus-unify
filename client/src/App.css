@@ -1621,6 +1621,16 @@ dialog::backdrop {
 }
 .login-story .brand {
   align-self: flex-start;
+  gap: 18px;
+  z-index: 1;
+}
+.brand-name {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+  color: var(--on-dark);
 }
 .login-story .brand-logo {
   width: 88px;
@@ -1940,6 +1950,13 @@ dialog::backdrop {
   }
   .login-copy {
     padding: 22px 0 8px;
+  }
+  .login-story .brand-logo {
+    width: 60px;
+    height: 60px;
+  }
+  .brand-name {
+    font-size: 19px;
   }
   .login-copy h1 {
     font-size: 32px;
