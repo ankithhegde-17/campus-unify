@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   X,
   Search,
@@ -50,18 +50,14 @@ export function Table({
     [page, setPage] = useState(0),
     [sort, setSort] = useState(null);
   const needle = query.trim().toLowerCase(),
-    // Large tables (thousands of students) only re-filter and re-sort when
-    // their rows, search text or sort order change.
-    filtered = useMemo(() => {
-      const matches = needle
-        ? rows.filter((r) => JSON.stringify(r).toLowerCase().includes(needle))
-        : rows;
-      return sort
-        ? [...matches].sort(
-            (a, b) => compare(a[sort.key], b[sort.key]) * sort.dir,
-          )
-        : matches;
-    }, [rows, needle, sort]),
+    matches = needle
+      ? rows.filter((r) => JSON.stringify(r).toLowerCase().includes(needle))
+      : rows,
+    filtered = sort
+      ? [...matches].sort(
+          (a, b) => compare(a[sort.key], b[sort.key]) * sort.dir,
+        )
+      : matches,
     pages = Math.max(1, Math.ceil(filtered.length / 8)),
     current = Math.min(page, pages - 1),
     visible = filtered.slice(current * 8, current * 8 + 8);

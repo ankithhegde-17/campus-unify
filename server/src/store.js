@@ -74,8 +74,6 @@ export async function createStore(options = {}) {
   }
   let queue = Promise.resolve(),
     pending = null;
-  // Remembers which revision each loaded state object belongs to.
-  const revisions = new WeakMap();
   async function load() {
     if (admin) {
       // The workspace is large; ask for its revision first and download the
@@ -95,7 +93,6 @@ export async function createStore(options = {}) {
       if (error) throw error;
       state = data.payload;
       revision = data.revision;
-      revisions.set(state, revision);
     } else {
       // The seed utility can be run while the demo API is active. Re-read the
       // persisted workspace when the file changes so requests reflect it.
@@ -103,7 +100,6 @@ export async function createStore(options = {}) {
       if (mtimeMs === revision && state) return state;
       state = JSON.parse(await readFile(file, "utf8"));
       revision = mtimeMs;
-      revisions.set(state, revision);
     }
     return state;
   }
@@ -116,7 +112,6 @@ export async function createStore(options = {}) {
     mode,
     admin,
     read: reload,
-    revisionOf: (s) => revisions.get(s),
     async mutate(operation) {
       const task = queue.then(async () => {
         await reload();
@@ -142,7 +137,6 @@ export async function createStore(options = {}) {
           revision = (await stat(file)).mtimeMs;
         }
         state = draft;
-        revisions.set(state, revision);
         return result;
       });
       queue = task.catch(() => {});

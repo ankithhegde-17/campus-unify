@@ -25,15 +25,78 @@ import { Table, Badge, Empty, Panel } from "./ui";
 import { money, label } from "./lib/format";
 import { api, csv, download, parseCSV } from "./lib/client";
 import { createRazorpayOrder, openRazorpay } from "./lib/razorpay";
-import {
-  lookup,
-  derive,
-  studentBalance,
-  feeRows,
-  eligibilityRows,
-  attendanceRisks,
-} from "./lib/derived";
 
+// Lookups built once per dataset. Pages list every student in scope, so
+// scanning charges, payments and attendance per student would be quadratic.
+const lookups = new WeakMap();
+function group(rows, key) {
+  const map = new Map();
+  for (const r of rows) {
+    const k = key(r);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(r);
+  }
+  return map;
+}
+const classKey = (x) => `${x?.campus_id}|${x?.department_id}|${x?.class_name}`;
+function lookup(d) {
+  let x = lookups.get(d);
+  if (x) return x;
+  x = {
+    students: new Map(d.students.map((s) => [s.id, s])),
+    campuses: new Map(d.campuses.map((c) => [c.id, c])),
+    sessions: new Map(d.sessions.map((s) => [s.id, s])),
+    classSessions: group(d.sessions, classKey),
+    attendance: group(d.attendance, (a) => a.student_id),
+    balances: new Map(),
+    thresholds: new Map(),
+  };
+  for (const c of d.charges)
+    x.balances.set(
+      c.student_id,
+      (x.balances.get(c.student_id) || 0) + c.amount - c.concession,
+    );
+  for (const p of d.payments)
+    x.balances.set(p.student_id, (x.balances.get(p.student_id) || 0) - p.amount);
+  lookups.set(d, x);
+  return x;
+}
+function studentBalance(d, id) {
+  return lookup(d).balances.get(id) || 0;
+}
+function attendanceStats(d, id) {
+  const x = lookup(d),
+    sessions = x.classSessions.get(classKey(x.students.get(id))) || [];
+  const ids = new Set(sessions.map((s) => s.id));
+  const entries = (x.attendance.get(id) || []).filter((a) =>
+    ids.has(a.session_id),
+  );
+  const counted = entries.filter((a) => a.status !== "excused"),
+    present = counted.filter((a) => a.status === "present").length;
+  return {
+    present,
+    total: counted.length,
+    missing: Math.max(0, sessions.length - entries.length),
+    percent: counted.length
+      ? Math.round((present / counted.length) * 100)
+      : null,
+  };
+}
+function threshold(d, campus) {
+  const cache = lookup(d).thresholds;
+  if (!cache.has(campus))
+    cache.set(
+      campus,
+      [...d.rules]
+        .filter((r) => r.campus_id === campus && r.effective_from <= today())
+        .sort(
+          (a, b) =>
+            b.effective_from.localeCompare(a.effective_from) ||
+            b.version - a.version,
+        )[0]?.attendance_threshold ?? 75,
+    );
+  return cache.get(campus);
+}
 const opts = (rows, key = "full_name") =>
   rows.map((r) => ({ value: r.id, label: r[key] }));
 const field = (key, label, type = "text", extra = {}) => ({
@@ -87,12 +150,16 @@ export function Overview(ctx) {
   const financial = all.modules.includes("finance"),
     academic = all.modules.includes("attendance"),
     hostel = all.modules.includes("hostels");
-  const outstanding = derive(d, "outstanding", () =>
-      d.students.reduce((n, s) => n + Math.max(0, studentBalance(d, s.id)), 0),
+  const outstanding = d.students.reduce(
+      (n, s) => n + Math.max(0, studentBalance(d, s.id)),
+      0,
     ),
     collected = d.payments.reduce((n, p) => n + p.amount, 0);
   const occupied = d.allocations.filter((a) => !a.ends_on).length;
-  const risks = attendanceRisks(d);
+  const risks = d.students.filter((s) => {
+    const a = attendanceStats(d, s.id);
+    return a.percent !== null && a.percent < threshold(d, s.campus_id);
+  });
   const cards = [
     {
       title: "Students in your scope",
@@ -887,11 +954,7 @@ export function Finance(ctx) {
         <div>
           <span>Net charges</span>
           <strong>
-            {money(
-              derive(d, "netCharges", () =>
-                d.charges.reduce((n, c) => n + c.amount - c.concession, 0),
-              ),
-            )}
+            {money(d.charges.reduce((n, c) => n + c.amount - c.concession, 0))}
           </strong>
         </div>
         <div>
@@ -901,11 +964,7 @@ export function Finance(ctx) {
         <div>
           <span>Outstanding</span>
           <strong>
-            {money(
-              derive(d, "netOutstanding", () =>
-                d.students.reduce((n, s) => n + studentBalance(d, s.id), 0),
-              ),
-            )}
+            {money(d.students.reduce((n, s) => n + studentBalance(d, s.id), 0))}
           </strong>
         </div>
       </div>
@@ -914,7 +973,10 @@ export function Finance(ctx) {
         subtitle="Concessions, collected amounts and pending dues"
       >
         <Table
-          rows={feeRows(d)}
+          rows={d.students.map((s) => ({
+            ...s,
+            balance: studentBalance(d, s.id),
+          }))}
           columns={[
             {
               key: "full_name",
@@ -1196,7 +1258,11 @@ export function Attendance(ctx) {
         subtitle="Current class sessions · excused entries excluded from the denominator"
       >
         <Table
-          rows={eligibilityRows(d)}
+          rows={d.students.map((s) => ({
+            ...s,
+            ...attendanceStats(d, s.id),
+            threshold: threshold(d, s.campus_id),
+          }))}
           columns={[
             { key: "full_name", title: "Student" },
             {
