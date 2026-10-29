@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { makeSeed } from "./domain/seed.js";
@@ -72,9 +72,19 @@ export async function createStore(options = {}) {
       await writeFile(file, JSON.stringify(state, null, 2));
     }
   }
-  let queue = Promise.resolve();
-  async function reload() {
+  let queue = Promise.resolve(),
+    pending = null;
+  async function load() {
     if (admin) {
+      // The workspace is large; ask for its revision first and download the
+      // payload only when another instance has saved a newer one.
+      const { data: head, error: he } = await admin
+        .from("cu_workspace")
+        .select("revision")
+        .eq("id", "main")
+        .single();
+      if (he) throw he;
+      if (head.revision === revision && state) return state;
       const { data, error } = await admin
         .from("cu_workspace")
         .select("payload,revision")
@@ -85,10 +95,18 @@ export async function createStore(options = {}) {
       revision = data.revision;
     } else {
       // The seed utility can be run while the demo API is active. Re-read the
-      // persisted workspace so the next request reflects that update.
+      // persisted workspace when the file changes so requests reflect it.
+      const { mtimeMs } = await stat(file);
+      if (mtimeMs === revision && state) return state;
       state = JSON.parse(await readFile(file, "utf8"));
+      revision = mtimeMs;
     }
     return state;
+  }
+  // Requests arriving together share one read.
+  function reload() {
+    pending ||= load().finally(() => (pending = null));
+    return pending;
   }
   return {
     mode,
@@ -116,6 +134,7 @@ export async function createStore(options = {}) {
         } else {
           await writeFile(`${file}.tmp`, JSON.stringify(draft, null, 2));
           await rename(`${file}.tmp`, file);
+          revision = (await stat(file)).mtimeMs;
         }
         state = draft;
         return result;

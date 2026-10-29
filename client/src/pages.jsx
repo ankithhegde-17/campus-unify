@@ -26,27 +26,50 @@ import { money, label } from "./lib/format";
 import { api, csv, download, parseCSV } from "./lib/client";
 import { createRazorpayOrder, openRazorpay } from "./lib/razorpay";
 
+// Lookups built once per dataset. Pages list every student in scope, so
+// scanning charges, payments and attendance per student would be quadratic.
+const lookups = new WeakMap();
+function group(rows, key) {
+  const map = new Map();
+  for (const r of rows) {
+    const k = key(r);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(r);
+  }
+  return map;
+}
+const classKey = (x) => `${x?.campus_id}|${x?.department_id}|${x?.class_name}`;
+function lookup(d) {
+  let x = lookups.get(d);
+  if (x) return x;
+  x = {
+    students: new Map(d.students.map((s) => [s.id, s])),
+    campuses: new Map(d.campuses.map((c) => [c.id, c])),
+    sessions: new Map(d.sessions.map((s) => [s.id, s])),
+    classSessions: group(d.sessions, classKey),
+    attendance: group(d.attendance, (a) => a.student_id),
+    balances: new Map(),
+    thresholds: new Map(),
+  };
+  for (const c of d.charges)
+    x.balances.set(
+      c.student_id,
+      (x.balances.get(c.student_id) || 0) + c.amount - c.concession,
+    );
+  for (const p of d.payments)
+    x.balances.set(p.student_id, (x.balances.get(p.student_id) || 0) - p.amount);
+  lookups.set(d, x);
+  return x;
+}
 function studentBalance(d, id) {
-  return (
-    d.charges
-      .filter((c) => c.student_id === id)
-      .reduce((n, c) => n + c.amount - c.concession, 0) -
-    d.payments
-      .filter((p) => p.student_id === id)
-      .reduce((n, p) => n + p.amount, 0)
-  );
+  return lookup(d).balances.get(id) || 0;
 }
 function attendanceStats(d, id) {
-  const s = d.students.find((s) => s.id === id);
-  const sessions = d.sessions.filter(
-    (x) =>
-      x.campus_id === s?.campus_id &&
-      x.department_id === s?.department_id &&
-      x.class_name === s?.class_name,
-  );
-  const ids = new Set(sessions.map((x) => x.id));
-  const entries = d.attendance.filter(
-    (a) => a.student_id === id && ids.has(a.session_id),
+  const x = lookup(d),
+    sessions = x.classSessions.get(classKey(x.students.get(id))) || [];
+  const ids = new Set(sessions.map((s) => s.id));
+  const entries = (x.attendance.get(id) || []).filter((a) =>
+    ids.has(a.session_id),
   );
   const counted = entries.filter((a) => a.status !== "excused"),
     present = counted.filter((a) => a.status === "present").length;
@@ -60,19 +83,19 @@ function attendanceStats(d, id) {
   };
 }
 function threshold(d, campus) {
-  return (
-    [...d.rules]
-      .filter(
-        (r) =>
-          r.campus_id === campus &&
-          r.effective_from <= new Date().toISOString().slice(0, 10),
-      )
-      .sort(
-        (a, b) =>
-          b.effective_from.localeCompare(a.effective_from) ||
-          b.version - a.version,
-      )[0]?.attendance_threshold ?? 75
-  );
+  const cache = lookup(d).thresholds;
+  if (!cache.has(campus))
+    cache.set(
+      campus,
+      [...d.rules]
+        .filter((r) => r.campus_id === campus && r.effective_from <= today())
+        .sort(
+          (a, b) =>
+            b.effective_from.localeCompare(a.effective_from) ||
+            b.version - a.version,
+        )[0]?.attendance_threshold ?? 75,
+    );
+  return cache.get(campus);
 }
 const opts = (rows, key = "full_name") =>
   rows.map((r) => ({ value: r.id, label: r[key] }));
@@ -99,10 +122,10 @@ function assignmentFields(d) {
   ];
 }
 function studentName(d, id) {
-  return d.students.find((s) => s.id === id)?.full_name || "Historical student";
+  return lookup(d).students.get(id)?.full_name || "Historical student";
 }
 function campusName(d, id) {
-  return d.campuses.find((c) => c.id === id)?.name || "Previous campus";
+  return lookup(d).campuses.get(id)?.name || "Previous campus";
 }
 const permitted = (ctx, roles) =>
   ctx.all.assignments.some((a) => roles.includes(a.role_code));
@@ -1291,7 +1314,7 @@ export function Attendance(ctx) {
                               .filter((a) => a.student_id === r.id)
                               .map((a) => ({
                                 value: a.id,
-                                label: `${d.sessions.find((s) => s.id === a.session_id)?.date || "Previous session"} · ${a.status}`,
+                                label: `${lookup(d).sessions.get(a.session_id)?.date || "Previous session"} · ${a.status}`,
                               })),
                           },
                         ),

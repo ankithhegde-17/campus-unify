@@ -49,9 +49,10 @@ export function Table({
   const [query, setQuery] = useState(""),
     [page, setPage] = useState(0),
     [sort, setSort] = useState(null);
-  const matches = rows.filter((r) =>
-      JSON.stringify(r).toLowerCase().includes(query.toLowerCase()),
-    ),
+  const needle = query.trim().toLowerCase(),
+    matches = needle
+      ? rows.filter((r) => JSON.stringify(r).toLowerCase().includes(needle))
+      : rows,
     filtered = sort
       ? [...matches].sort(
           (a, b) => compare(a[sort.key], b[sort.key]) * sort.dir,

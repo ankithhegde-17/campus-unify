@@ -273,7 +273,18 @@ function Login({ config, onSignedIn }) {
     </div>
   );
 }
+// Keep the last filtered view so re-renders (search typing, notices) reuse it
+// and the pages' per-dataset lookups are not rebuilt.
+let lastScope = {};
 function scoped(data, campus, department = "", year = "") {
+  const s = lastScope;
+  if (s.data === data && s.campus === campus && s.department === department && s.year === year)
+    return s.result;
+  const result = scopeData(data, campus, department, year);
+  lastScope = { data, campus, department, year, result };
+  return result;
+}
+function scopeData(data, campus, department, year) {
   if (!campus) return data;
   const result = { ...data };
   for (const key of [
@@ -417,11 +428,11 @@ function Workspace({ config, onSignedOut }) {
   }, [notice]);
   async function run(action, body) {
     try {
-      const result = await api(`/actions/${action}`, {
+      const { workspace, ...result } = await api(`/actions/${action}?view=1`, {
         method: "POST",
         body: JSON.stringify(body),
       });
-      await load();
+      setData(workspace);
       setNotice(result.message);
       setError("");
       return result;

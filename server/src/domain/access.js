@@ -147,13 +147,16 @@ export function safeView(state, actor) {
       .filter((s) => studentAllowed(state, actor, s))
       .map((s) => s.id),
   );
+  // First charge per student on a campus this actor can access; built once so
+  // large workspaces are not rescanned per student.
+  const chargeCampus = new Map();
+  if (can("finance"))
+    for (const ch of state.charges)
+      if (!chargeCampus.has(ch.student_id) && campusAccess(actor, ch.campus_id))
+        chargeCampus.set(ch.student_id, ch.campus_id);
   const historicStudents = can("finance")
     ? state.students.filter(
-        (s) =>
-          !assignedStudentIds.has(s.id) &&
-          state.charges.some(
-            (ch) => ch.student_id === s.id && campusAccess(actor, ch.campus_id),
-          ),
+        (s) => !assignedStudentIds.has(s.id) && chargeCampus.has(s.id),
       )
     : [];
   const historicIds = new Set(historicStudents.map((s) => s.id));
@@ -201,14 +204,11 @@ export function safeView(state, actor) {
           })
       : [];
   for (const s of historicStudents) {
-    const ch = state.charges.find(
-      (ch) => ch.student_id === s.id && campusAccess(actor, ch.campus_id),
-    );
     students.push({
       id: s.id,
       student_code: s.student_code,
       full_name: s.full_name,
-      campus_id: ch.campus_id,
+      campus_id: chargeCampus.get(s.id),
       class_name: "Historical enrolment",
       status: "transferred",
       academic_year: s.academic_year,
@@ -239,6 +239,23 @@ export function safeView(state, actor) {
     ? state.allocations.filter((a) => assignedStudentIds.has(a.student_id))
     : [];
   const allowedBeds = new Set(allocations.map((a) => a.bed_id));
+  const classKey = (x) => `${x.campus_id}|${x.department_id}|${x.class_name}`,
+    assignedClasses = new Set(),
+    classSessions = new Map(),
+    attendanceByStudent = new Map();
+  for (const st of state.students)
+    if (assignedStudentIds.has(st.id))
+      assignedClasses.add(`${st.department_id}|${st.class_name}`);
+  for (const x of state.sessions) {
+    const k = classKey(x);
+    if (!classSessions.has(k)) classSessions.set(k, new Set());
+    classSessions.get(k).add(x.id);
+  }
+  for (const a of state.attendance) {
+    if (!attendanceByStudent.has(a.student_id))
+      attendanceByStudent.set(a.student_id, []);
+    attendanceByStudent.get(a.student_id).push(a);
+  }
   return {
     meta: state.meta,
     profile: actor.profile,
@@ -317,12 +334,7 @@ export function safeView(state, actor) {
       ? state.sessions.filter(
           (s) =>
             relevantCampus(s.campus_id) &&
-            state.students.some(
-              (st) =>
-                assignedStudentIds.has(st.id) &&
-                st.department_id === s.department_id &&
-                st.class_name === s.class_name,
-            ),
+            assignedClasses.has(`${s.department_id}|${s.class_name}`),
         )
       : [],
     attendance: can("attendance")
@@ -374,21 +386,9 @@ export function safeView(state, actor) {
                   b.version - a.version,
               )[0];
             const risk = ss.filter((s) => {
-              const sessions = new Set(
-                  state.sessions
-                    .filter(
-                      (x) =>
-                        x.campus_id === s.campus_id &&
-                        x.department_id === s.department_id &&
-                        x.class_name === s.class_name,
-                    )
-                    .map((x) => x.id),
-                ),
-                entries = state.attendance.filter(
-                  (a) =>
-                    a.student_id === s.id &&
-                    sessions.has(a.session_id) &&
-                    a.status !== "excused",
+              const sessions = classSessions.get(classKey(s)) || new Set(),
+                entries = (attendanceByStudent.get(s.id) || []).filter(
+                  (a) => sessions.has(a.session_id) && a.status !== "excused",
                 );
               return (
                 entries.length &&

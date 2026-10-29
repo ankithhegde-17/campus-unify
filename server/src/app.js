@@ -8,7 +8,8 @@ import { act, previewImport } from "./domain/actions.js";
 export function createApp(store) {
   const app = express(),
     sessions = new Map(),
-    attempts = new Map();
+    attempts = new Map(),
+    verified = new Map();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "1mb" }));
   app.use("/api", (_req, res, next) => {
@@ -58,15 +59,51 @@ export function createApp(store) {
     sessions.set(token, { userId: user.id, expires: now + 8 * 60 * 60 * 1000 });
     res.json({ token });
   });
+  async function verifySupabase(token) {
+    const client = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_PUBLISHABLE_KEY,
+      {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      },
+    );
+    const {
+      data: { user },
+      error,
+    } = await client.auth.getUser(token);
+    if (error || !user) fail("Session expired. Sign in again.", 401);
+    const [
+      { data: profile, error: pe },
+      { data: assignments, error: ae },
+    ] = await Promise.all([
+      client
+        .from("profiles")
+        .select("id,full_name,is_active")
+        .eq("id", user.id)
+        .maybeSingle(),
+      client
+        .from("role_assignments")
+        .select("role_code,scope,campus_id,department_id")
+        .eq("user_id", user.id),
+    ]);
+    if (pe) throw pe;
+    if (!profile?.is_active)
+      fail("Application profile is missing or inactive.", 403);
+    if (ae) throw ae;
+    return { user, profile, assignments };
+  }
   app.use("/api", async (req, res, next) => {
     const token = (req.get("authorization") || "").match(
       /^Bearer\s+(\S+)$/i,
     )?.[1];
     if (!token) fail("Sign in to access this resource.", 401);
-    const state = await store.read();
+    const reading = store.read();
+    reading.catch(() => {});
     let actor;
     if (store.mode === "demo") {
-      const session = sessions.get(token);
+      const state = await reading,
+        session = sessions.get(token);
       if (!session || session.expires < Date.now())
         fail("Session expired. Sign in again.", 401);
       const u = state.users.find((u) => u.id === session.userId);
@@ -91,32 +128,16 @@ export function createApp(store) {
         email: u.email,
       };
     } else {
-      const client = createClient(
-        process.env.SUPABASE_URL,
-        process.env.SUPABASE_PUBLISHABLE_KEY,
-        {
-          global: { headers: { Authorization: `Bearer ${token}` } },
-          auth: { persistSession: false, autoRefreshToken: false },
-        },
-      );
-      const {
-        data: { user },
-        error,
-      } = await client.auth.getUser(token);
-      if (error || !user) fail("Session expired. Sign in again.", 401);
-      const { data: profile, error: pe } = await client
-        .from("profiles")
-        .select("id,full_name,is_active")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (pe) throw pe;
-      if (!profile?.is_active)
-        fail("Application profile is missing or inactive.", 403);
-      const { data: assignments, error: ae } = await client
-        .from("role_assignments")
-        .select("role_code,scope,campus_id,department_id")
-        .eq("user_id", user.id);
-      if (ae) throw ae;
+      // A verified token is reused briefly so each page load and action does
+      // not repeat three Supabase round trips; role changes apply within 30s.
+      let cached = verified.get(token);
+      if (!cached || cached.expires < Date.now()) {
+        cached = { ...(await verifySupabase(token)), expires: Date.now() + 30000 };
+        if (verified.size > 500) verified.clear();
+        verified.set(token, cached);
+      }
+      const { user, profile, assignments } = cached,
+        state = await reading;
       if (state.users.some((u) => u.id === user.id && !u.is_active))
         fail("Application access has been disabled.", 403);
       const linked = state.users.find((u) => u.id === user.id && u.staff_id);
@@ -141,6 +162,7 @@ export function createApp(store) {
       };
     }
     req.actor = actor;
+    req.state = await reading;
     next();
   });
   app.post("/api/auth/logout", (req, res) => {
@@ -153,18 +175,18 @@ export function createApp(store) {
     res.json({ ...req.actor, modules: capabilities(req.actor) }),
   );
   app.get("/api/workspace", async (req, res) =>
-    res.json(safeView(await store.read(), req.actor)),
+    res.json(safeView(req.state, req.actor)),
   );
   app.get("/api/campuses", async (req, res) =>
-    res.json({ campuses: safeView(await store.read(), req.actor).campuses }),
+    res.json({ campuses: safeView(req.state, req.actor).campuses }),
   );
   app.get("/api/departments", async (req, res) =>
     res.json({
-      departments: safeView(await store.read(), req.actor).departments,
+      departments: safeView(req.state, req.actor).departments,
     }),
   );
   app.post("/api/import/preview", async (req, res) =>
-    res.json(previewImport(await store.read(), req.actor, req.body)),
+    res.json(previewImport(req.state, req.actor, req.body)),
   );
   app.post("/api/actions/:action", async (req, res) => {
     if (!req.body || typeof req.body !== "object" || Array.isArray(req.body))
@@ -172,6 +194,13 @@ export function createApp(store) {
     const result = await store.mutate((state) =>
       act(state, req.actor, req.params.action, req.body),
     );
+    // ?view=1 returns the refreshed workspace too, saving the client a
+    // second round trip after every change.
+    if (req.query.view)
+      return res.json({
+        ...result,
+        workspace: safeView(await store.read(), req.actor),
+      });
     res.json(result);
   });
   app.use("/api", (_req, res) =>
