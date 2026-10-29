@@ -76,6 +76,7 @@ export async function createStore(options = {}) {
     pending = null;
   // Remembers which revision each loaded state object belongs to.
   const revisions = new WeakMap();
+  if (admin) revisions.set(state, revision);
   async function load() {
     if (admin) {
       // The workspace is large; ask for its revision first and download the
