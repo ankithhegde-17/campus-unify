@@ -1,7 +1,7 @@
 import express from "express";
 import { documentRoutes } from "./documents.js";
 import { razorpayRoutes } from "./razorpay.js";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { capabilities, safeView, fail } from "./domain/access.js";
 import { act, previewImport } from "./domain/actions.js";
@@ -174,9 +174,30 @@ export function createApp(store) {
   app.get("/api/me", (req, res) =>
     res.json({ ...req.actor, modules: capabilities(req.actor) }),
   );
-  app.get("/api/workspace", async (req, res) =>
-    res.json(safeView(req.state, req.actor)),
-  );
+  // The workspace is large but rarely changes between page refreshes. The
+  // browser keeps a private copy and revalidates it; an unchanged workspace
+  // for the same account and build is answered with an empty 304.
+  const build =
+    process.env.VERCEL_DEPLOYMENT_ID ||
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    String(Date.now());
+  app.get("/api/workspace", (req, res) => {
+    const revision = store.revisionOf(req.state);
+    if (revision !== undefined) {
+      const tag = `W/"${createHash("sha1")
+        .update(
+          JSON.stringify([build, revision, req.actor.userId, req.actor.profile, req.actor.assignments]),
+        )
+        .digest("base64url")}"`;
+      res.set({
+        ETag: tag,
+        "Cache-Control": "private, no-cache",
+        Vary: "Authorization",
+      });
+      if (req.get("if-none-match") === tag) return res.status(304).end();
+    }
+    res.json(safeView(req.state, req.actor));
+  });
   app.get("/api/campuses", async (req, res) =>
     res.json({ campuses: safeView(req.state, req.actor).campuses }),
   );

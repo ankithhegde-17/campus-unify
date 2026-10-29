@@ -48,6 +48,7 @@ import {
   UsersPage,
   Imports,
 } from "./pages";
+import { prepareData } from "./lib/derived";
 const pages = {
   overview: Overview,
   students: Students,
@@ -361,6 +362,10 @@ function Workspace({ config, onSignedOut }) {
     [query, setQuery] = useState(""),
     [refreshing, setRefreshing] = useState(false);
   const searchRef = useRef(null);
+  useEffect(
+    () => data && prepareData(scoped(data, campus, department, year)),
+    [data, campus, department, year],
+  );
   // The hash keeps the open module across refreshes and browser back/forward.
   function setPage(key) {
     if (key !== page) window.location.hash = key;
@@ -839,9 +844,29 @@ export default function App() {
   useEffect(() => {
     let active = true,
       subscription;
+    // The public backend settings are remembered, so a refresh can start
+    // signing in without waiting for /config; they are re-checked below.
+    let saved = null;
+    try {
+      saved = JSON.parse(localStorage.getItem("cu.config"));
+    } catch {
+      /* Start without the remembered settings. */
+    }
+    const latest = api("/config").then((c) => {
+      const text = JSON.stringify(c);
+      try {
+        localStorage.setItem("cu.config", text);
+      } catch {
+        /* Storage may be unavailable; the app still works. */
+      }
+      // A redeploy changed the settings the page started with.
+      if (saved && JSON.stringify(saved) !== text) window.location.reload();
+      return c;
+    });
+    if (saved) latest.catch(() => {});
     async function boot() {
       try {
-        const c = await api("/config");
+        const c = saved || (await latest);
         configure(c);
         if (!active) return;
         setConfig(c);
